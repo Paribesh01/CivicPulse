@@ -1,0 +1,395 @@
+// CivicPulse — civic complaint intake, routing and SLA escalation.
+//
+// Everything the pipeline routes on (department mappings, SLA hours,
+// escalation thresholds, officer rosters, ward geometry) lives in tables,
+// not in code, so a new city or department is a data load rather than a
+// rebuild.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+// Prisma 7 keeps connection URLs out of the schema: migrations read
+// `datasource.url` from prisma.config.ts, and the runtime client is given a
+// driver adapter in src/lib/db.ts.
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  CITIZEN
+  OFFICER
+  SUPERVISOR
+  DEPT_HEAD
+  ADMIN
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ComplaintStatus {
+  SUBMITTED
+  TRIAGED
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  REJECTED
+  DUPLICATE
+}
+
+enum EventType {
+  SUBMITTED
+  CLASSIFIED
+  ROUTED
+  PRIORITIZED
+  LOCATED
+  ASSIGNED
+  REASSIGNED
+  REMINDER
+  WARNING
+  ESCALATED
+  STATUS_CHANGED
+  COMMENT
+  RESOLVED
+  REOPENED
+  DUPLICATE_MERGED
+  TRIAGE_FAILED
+}
+
+enum EscalationKind {
+  REMINDER
+  WARNING
+  ESCALATE
+}
+
+enum NotificationChannel {
+  IN_APP
+  SMS
+  EMAIL
+  PUSH
+}
+
+// ---------------------------------------------------------------------------
+// Auth (better-auth core tables + CivicPulse fields on User)
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // CivicPulse additions
+  role         Role    @default(CITIZEN)
+  phone        String?
+  departmentId String?
+  wardId       String?
+  // Officers are on duty unless stood down; the assignment step skips
+  // anyone not available so leave/transfer does not silently swallow tickets.
+  available    Boolean @default(true)
+
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  ward       Ward?       @relation(fields: [wardId], references: [id], onDelete: SetNull)
+
+  sessions Session[]
+  accounts Account[]
+
+  filedComplaints    Complaint[]      @relation("ComplaintCitizen")
+  assignedComplaints Complaint[]      @relation("ComplaintAssignee")
+  events             ComplaintEvent[] @relation("EventActor")
+  notifications      Notification[]
+
+  @@index([role])
+  @@index([departmentId, wardId])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id String @id
+  /// better-auth 1.7 scopes account identity by issuer — "local:credential"
+  /// for email/password, the provider's issuer URL for OAuth. Sign-in looks
+  /// accounts up by (issuer, accountId), so this must be populated.
+  issuer                String
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([issuer, accountId])
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ---------------------------------------------------------------------------
+// Jurisdiction & routing reference data
+// ---------------------------------------------------------------------------
+
+model Department {
+  id          String  @id @default(cuid())
+  code        String  @unique
+  name        String
+  description String?
+  contactMail String?
+
+  users           User[]
+  categoryRoutes  CategoryRoute[]
+  complaints      Complaint[]
+  escalationRules EscalationRule[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Ward {
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+  zone String
+
+  lat Float?
+  lng Float?
+
+  // Landmarks and colloquial names the intake text is matched against
+  // before falling back to a geocoder.
+  aliases String[] @default([])
+
+  users      User[]
+  complaints Complaint[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([zone])
+}
+
+/// One row per category in the classifier taxonomy. The classifier is only
+/// allowed to return a `key` that exists here, which is what keeps the model
+/// from inventing departments that do not exist.
+model CategoryRoute {
+  id       String @id @default(cuid())
+  key      String @unique
+  label    String
+  group    String
+  /// Baseline SLA before the priority multiplier is applied. A burst water
+  /// main and a faded road marking should not share one clock.
+  baseSlaHours Int    @default(48)
+  /// 0-40 contribution to the priority score — how dangerous this category
+  /// is when nothing else is known about the complaint.
+  severityWeight Int  @default(10)
+  /// Extra terms that bias the classifier and the duplicate matcher.
+  keywords     String[] @default([])
+  active       Boolean  @default(true)
+
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  complaints Complaint[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([departmentId])
+}
+
+/// The escalation ladder, expressed as fractions of a ticket's own SLA so the
+/// same ladder works for a 4-hour clock and a 120-hour one.
+model EscalationRule {
+  id       String         @id @default(cuid())
+  sequence Int
+  /// 0.5 = halfway to the deadline, 1.0 = the deadline, 1.5 = 50% past it.
+  fraction Float
+  kind     EscalationKind
+  label    String
+
+  notifyAssignee Boolean @default(true)
+  /// Tier this rung escalates visibility to, if any.
+  notifyRole     Role?
+
+  /// Null applies the rule to every department.
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([departmentId, sequence])
+  @@index([departmentId])
+}
+
+// ---------------------------------------------------------------------------
+// Complaints
+// ---------------------------------------------------------------------------
+
+model Complaint {
+  id   String @id @default(cuid())
+  code String @unique
+
+  rawText  String
+  language String?
+  channel  String  @default("WEB")
+  photoUrl String?
+
+  citizenId    String?
+  citizen      User?   @relation("ComplaintCitizen", fields: [citizenId], references: [id], onDelete: SetNull)
+  citizenPhone String?
+
+  // --- Classification ---
+  categoryRouteId String?
+  categoryRoute   CategoryRoute? @relation(fields: [categoryRouteId], references: [id], onDelete: SetNull)
+  subCategory     String?
+  intentSummary   String?
+  confidence      Float?
+  /// Set when the classifier was not confident enough to route unattended.
+  needsReview     Boolean        @default(false)
+
+  // --- Priority ---
+  priority             Priority @default(MEDIUM)
+  priorityScore        Int?
+  /// The individual signals that produced the score, kept so an officer can
+  /// see why a ticket outranked theirs.
+  prioritySignals      Json?
+  /// "not working for 5 days" -> 5
+  reportedDurationDays Int?
+
+  // --- Location ---
+  locationText String?
+  wardId       String?
+  ward         Ward?   @relation(fields: [wardId], references: [id], onDelete: SetNull)
+  lat          Float?
+  lng          Float?
+
+  // --- Assignment & SLA ---
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  assigneeId   String?
+  assignee     User?       @relation("ComplaintAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  status   ComplaintStatus @default(SUBMITTED)
+  slaHours Int?
+
+  assignedAt      DateTime?
+  dueAt           DateTime?
+  firstResponseAt DateTime?
+  resolvedAt      DateTime?
+  resolutionNote  String?
+
+  escalationLevel Int       @default(0)
+  lastEscalatedAt DateTime?
+  /// Highest escalation rule sequence already fired, so a sweep that runs
+  /// twice does not notify twice.
+  lastRuleFired   Int       @default(0)
+
+  // --- Duplicates ---
+  duplicateOfId String?
+  duplicateOf   Complaint?  @relation("ComplaintDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates    Complaint[] @relation("ComplaintDuplicates")
+
+  events        ComplaintEvent[]
+  notifications Notification[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, dueAt])
+  @@index([assigneeId, status])
+  @@index([departmentId, status])
+  @@index([wardId, categoryRouteId])
+  @@index([citizenId])
+  @@index([createdAt])
+}
+
+/// Append-only audit trail. This is the data product the brief is actually
+/// about — response times per officer, per department, per ward are derived
+/// from these rows.
+model ComplaintEvent {
+  id          String    @id @default(cuid())
+  complaintId String
+  complaint   Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  type    EventType
+  message String
+  meta    Json?
+
+  /// Null when the system acted rather than a person.
+  actorId String?
+  actor   User?   @relation("EventActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([complaintId, createdAt])
+  @@index([type, createdAt])
+}
+
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  complaintId String?
+  complaint   Complaint? @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  channel NotificationChannel @default(IN_APP)
+  title   String
+  body    String
+  readAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt])
+  @@index([createdAt])
+}
+
+/// Monotonic source for the human-facing CP-#### ticket numbers.
+model Counter {
+  name  String @id
+  value Int    @default(0)
+}

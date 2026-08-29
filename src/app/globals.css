@@ -1,26 +1,120 @@
 @import "tailwindcss";
 
+/* CivicPulse palette — carried over from the project brief so the product and
+   the pitch document read as one thing. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --bg: #eef1ec;
+  --surface: #ffffff;
+  --surface-2: #e4e9e2;
+  --ink: #1e2822;
+  --ink-soft: #57655d;
+  --ink-faint: #8b978e;
+  --line: #d3dbd0;
+  --accent: #2c5460;
+  --accent-ink: #1c3841;
+  --accent-soft: #dde9ea;
+  --warn: #a85a26;
+  --warn-soft: #f3e2d1;
+  --critical: #93362a;
+  --critical-soft: #f2ddd8;
+  --good: #3c6e4c;
+  --good-soft: #dde8de;
+  --shadow-card: 0 1px 2px rgba(30, 40, 34, 0.06), 0 1px 1px rgba(30, 40, 34, 0.04);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg: #12191a;
+    --surface: #1a2325;
+    --surface-2: #212c2d;
+    --ink: #e6ece6;
+    --ink-soft: #a9b6ae;
+    --ink-faint: #71807a;
+    --line: #2b3736;
+    --accent: #74b8c2;
+    --accent-ink: #cdeaee;
+    --accent-soft: #1e3236;
+    --warn: #e0a06a;
+    --warn-soft: #3a2a1d;
+    --critical: #e08b7d;
+    --critical-soft: #3a231f;
+    --good: #8fc9a0;
+    --good-soft: #22332a;
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 1px rgba(0, 0, 0, 0.2);
   }
 }
 
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-critical: var(--critical);
+  --color-critical-soft: var(--critical-soft);
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-source-serif), ui-serif, Georgia, serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+
+  --shadow-card: var(--shadow-card);
+}
+
+* {
+  border-color: var(--line);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Monospace, letter-spaced label used throughout for section markers and
+   metadata — the brief's "eyebrow" treatment. */
+.eyebrow {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pulse-dot {
+    animation: pulse-dot 2.4s ease-in-out infinite;
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+input,
+textarea,
+select {
+  color: var(--ink);
+}
+
+::placeholder {
+  color: var(--ink-faint);
 }
