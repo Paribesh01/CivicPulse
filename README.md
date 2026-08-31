@@ -99,6 +99,39 @@ pnpm sweep         # fire the sweep again on demand
 
 Both accept `BASE_URL` if you aren't on port 3000.
 
+## Deploying
+
+The generated Prisma client lives in `src/generated` and is **gitignored**, so
+a deploy host clones without it. Both `postinstall` and `build` run
+`prisma generate` to cover that — `postinstall` for a normal install, and
+`build` for hosts that restore a cached `node_modules` and skip postinstall.
+Don't remove either.
+
+Set these on the host (there is no `.env` in a deployment):
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Neon **pooled** string |
+| `DIRECT_URL` | Neon **direct** string — the host without `-pooler` |
+| `BETTER_AUTH_SECRET` | `openssl rand -base64 32` |
+| `BETTER_AUTH_URL` | **The deployed origin**, e.g. `https://civicpulse.vercel.app` |
+| `GROQ_API_KEY` | Your Groq key |
+| `CRON_SECRET` | `openssl rand -base64 32` — not the dev placeholder |
+
+`BETTER_AUTH_URL` is optional in dev but **required in production**: without it
+better-auth derives the origin from each incoming request, and sign-in
+callbacks and redirects can land on the wrong host.
+
+Apply migrations as a release step, before or just after the first boot:
+
+```bash
+pnpm db:deploy      # prisma migrate deploy — runs over DIRECT_URL
+pnpm db:seed        # only for a fresh database
+```
+
+Keep migrations out of the build command; parallel builds would race for the
+same advisory lock.
+
 ## Running the SLA sweep in production
 
 Point any scheduler at the endpoint:

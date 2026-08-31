@@ -39,7 +39,11 @@
       "Bash(perl -pi -e 's/Next\\\\.js &middot; Postgres &middot; Prisma &middot; Claude/Next.js &middot; Postgres &middot; Prisma &middot; Groq/' src/app/page.tsx)",
       "Bash(perl -pi -e 's|/// \"llm\" when Claude classified it, \"keyword\" when we fell back to term|/// \"llm\" when the model classified it, \"keyword\" when we fell back to term|' src/lib/pipeline/types.ts)",
       "Bash(pnpm remove *)",
-      "Bash(pnpm typecheck *)"
+      "Bash(pnpm typecheck *)",
+      "Bash(git check-ignore *)",
+      "Bash(node -e \"const p=require\\('./package.json'\\);console.log\\(JSON.stringify\\({build:p.scripts.build,postinstall:p.scripts.postinstall??null},null,1\\)\\)\")",
+      "Bash(env -u DATABASE_URL -u DIRECT_URL DOTENV_CONFIG_PATH=/dev/null pnpm exec prisma generate)",
+      "Bash(node -e \"console.log\\('next requires node:', require\\('./node_modules/next/package.json'\\).engines?.node\\)\")"
     ]
   }
 }
