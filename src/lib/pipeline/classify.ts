@@ -15,6 +15,10 @@ import {
 /// taxonomy and get back something we can route on without post-processing.
 const MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 
+/// Kept local rather than importing from the i18n barrel: this module must not
+/// pull `next/headers` into the pipeline.
+export type SupportedLocale = "en" | "hi";
+
 let client: Groq | null = null;
 function getClient(): Groq | null {
   if (!process.env.GROQ_API_KEY) return null;
@@ -36,7 +40,20 @@ function buildSchema(routes: RouteWithDepartment[]) {
       .describe("A short free-text refinement, e.g. 'pole out'. Max 6 words."),
     intent_summary: z
       .string()
-      .describe("One neutral sentence restating what the citizen is asking for."),
+      .describe(
+        "One neutral sentence in ENGLISH restating what the citizen is asking for. This is read by officers.",
+      ),
+    citizen_summary: z
+      .string()
+      .describe(
+        "The same understanding written back to the citizen in THEIR language, simply, as one short sentence. Start with what is broken and where.",
+      ),
+    clarifying_question: z
+      .string()
+      .nullable()
+      .describe(
+        "If something important is missing — usually the exact location or landmark — ask ONE short, simple question in the citizen's language. Null if nothing important is missing.",
+      ),
     confidence: z
       .number()
       .describe("0-1. How certain you are of category_key specifically."),
@@ -76,7 +93,10 @@ function toJsonSchema(schema: z.ZodType): Record<string, unknown> {
   return json;
 }
 
-function buildSystemPrompt(routes: RouteWithDepartment[]): string {
+function buildSystemPrompt(
+  routes: RouteWithDepartment[],
+  locale: SupportedLocale,
+): string {
   const taxonomy = routes
     .map(
       (r) =>
@@ -84,6 +104,11 @@ function buildSystemPrompt(routes: RouteWithDepartment[]): string {
         (r.keywords.length ? ` [cues: ${r.keywords.join(", ")}]` : ""),
     )
     .join("\n");
+
+  const citizenLanguage =
+    locale === "hi"
+      ? "Hindi (Devanagari script). Use simple everyday Hindi, not formal government vocabulary."
+      : "English. Use simple everyday English, short words, no jargon.";
 
   return [
     "You are the intake triage step of a municipal complaint system in India.",
@@ -93,7 +118,10 @@ function buildSystemPrompt(routes: RouteWithDepartment[]): string {
     "- Pick exactly one category_key from the taxonomy below. Never invent one.",
     "- If the complaint genuinely fits nothing, use the closest general category and set confidence below 0.4.",
     "- Only report hazard_signals the text explicitly supports. Do not infer danger that is not described — a dark street is not automatically a fall risk unless the citizen says someone could fall.",
-    "- Complaints arrive in English, Hindi, Hinglish and other Indian languages. Read them all; always answer in English.",
+    "- Complaints arrive in English, Hindi and Hinglish. Read them all.",
+    "- intent_summary is always ENGLISH (officers read it).",
+    `- citizen_summary and clarifying_question are always written in ${citizenLanguage}`,
+    "- Ask a clarifying_question ONLY when something important is genuinely missing, and above all when there is no usable location. Never ask for something the citizen already said.",
     "- Do not judge whether the complaint is worth acting on. Extraction only.",
     "",
     "Taxonomy:",
@@ -129,6 +157,12 @@ export function classifyByKeyword(
     categoryKey: best?.route.key ?? routes[routes.length - 1]?.key ?? "other",
     subCategory: "",
     intentSummary: text.slice(0, 180),
+    // The citizen's own words are already in the citizen's language, so the
+    // fallback echoes them rather than inventing a summary it cannot phrase.
+    citizenSummary: text.slice(0, 180),
+    // Without the model we cannot phrase a question in the right language, and
+    // a generic English prompt is worse than none — the location step asks anyway.
+    clarifyingQuestion: null,
     // Deliberately low: a keyword guess should land in the review queue
     // rather than silently route like a confident classification.
     confidence: best ? 0.35 : 0.1,
@@ -166,6 +200,7 @@ export function extractDurationDays(text: string): number | null {
 export async function classifyComplaint(
   text: string,
   routes: RouteWithDepartment[],
+  locale: SupportedLocale = "en",
 ): Promise<Classification> {
   const groq = getClient();
   if (!groq || routes.length === 0) {
@@ -184,7 +219,7 @@ export async function classifyComplaint(
       temperature: 0,
       max_completion_tokens: 2000,
       messages: [
-        { role: "system", content: buildSystemPrompt(routes) },
+        { role: "system", content: buildSystemPrompt(routes, locale) },
         { role: "user", content: text },
       ],
       response_format: {
@@ -213,6 +248,8 @@ export async function classifyComplaint(
       categoryKey: data.category_key,
       subCategory: data.sub_category,
       intentSummary: data.intent_summary,
+      citizenSummary: data.citizen_summary,
+      clarifyingQuestion: data.clarifying_question?.trim() || null,
       confidence: data.confidence,
       locationText: data.location_text,
       landmarkType: data.landmark_type,

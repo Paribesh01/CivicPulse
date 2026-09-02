@@ -2,9 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { CircleAlert, LogIn } from "lucide-react";
+import { BigButton } from "@/components/ui";
 import { signIn } from "@/lib/auth-client";
+import type { Dictionary } from "@/lib/i18n/dictionaries";
 
-export function LoginForm() {
+export function LoginForm({ t, next }: { t: Dictionary; next: string }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,14 +27,14 @@ export function LoginForm() {
       return;
     }
 
-    router.push("/dashboard");
+    router.push(next as never);
     router.refresh();
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <Field
-        label="Email"
+        label={t.auth.email}
         type="email"
         value={email}
         onChange={setEmail}
@@ -39,7 +42,7 @@ export function LoginForm() {
         required
       />
       <Field
-        label="Password"
+        label={t.auth.password}
         type="password"
         value={password}
         onChange={setPassword}
@@ -48,18 +51,15 @@ export function LoginForm() {
       />
 
       {error && (
-        <p className="rounded-lg bg-critical-soft px-3 py-2 text-sm text-critical">
+        <p className="flex items-start gap-2 rounded-xl bg-critical-soft p-3 text-critical">
+          <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
           {error}
         </p>
       )}
 
-      <button
-        type="submit"
-        disabled={pending}
-        className="w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-      >
-        {pending ? "Signing in…" : "Sign in"}
-      </button>
+      <BigButton type="submit" disabled={pending} icon={<LogIn className="h-5 w-5" />}>
+        {pending ? t.common.loading : t.common.signIn}
+      </BigButton>
     </form>
   );
 }
@@ -72,6 +72,7 @@ export function Field({
   autoComplete,
   required,
   placeholder,
+  hint,
 }: {
   label: string;
   type?: string;
@@ -80,10 +81,11 @@ export function Field({
   autoComplete?: string;
   required?: boolean;
   placeholder?: string;
+  hint?: string;
 }) {
   return (
     <label className="block">
-      <span className="eyebrow">{label}</span>
+      <span className="font-medium">{label}</span>
       <input
         type={type}
         value={value}
@@ -91,8 +93,9 @@ export function Field({
         autoComplete={autoComplete}
         required={required}
         placeholder={placeholder}
-        className="mt-1.5 w-full rounded-lg border border-line bg-bg px-3 py-2 text-sm outline-none transition-colors focus:border-accent"
+        className="mt-1.5 w-full rounded-xl border-2 border-line bg-bg px-4 text-lg outline-none transition-colors focus:border-accent"
       />
+      {hint && <span className="mt-1 block text-sm text-ink-soft">{hint}</span>}
     </label>
   );
 }

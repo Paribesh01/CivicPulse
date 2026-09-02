@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { notify } from "@/lib/notify";
+import { award } from "@/lib/rewards";
 import { requireUser } from "@/lib/session";
 import { canReassign, canUpdateComplaint } from "@/lib/scope";
 import type { ComplaintStatus } from "@/generated/prisma";
@@ -118,6 +119,33 @@ export async function updateComplaintStatus(
       },
     });
   });
+
+  // Rewards follow the outcome, not the filing: a report that turns out to be
+  // real and gets fixed is worth more than one that was merely submitted, and
+  // one rejected as bogus costs more than filing it earned.
+  if (complaint.citizenId) {
+    if (status === "RESOLVED") {
+      await award({
+        userId: complaint.citizenId,
+        complaintId: complaint.id,
+        reason: "COMPLAINT_RESOLVED",
+      });
+    } else if (status === "REJECTED") {
+      await award({
+        userId: complaint.citizenId,
+        complaintId: complaint.id,
+        reason: "COMPLAINT_REJECTED",
+      });
+    } else if (status === "CLOSED" && citizenClosing) {
+      // Only the citizen confirming the repair earns this — a staff member
+      // closing the ticket is not the same signal.
+      await award({
+        userId: complaint.citizenId,
+        complaintId: complaint.id,
+        reason: "COMPLAINT_CONFIRMED",
+      });
+    }
+  }
 
   if (complaint.citizenId && (status === "RESOLVED" || reopening)) {
     await notify([

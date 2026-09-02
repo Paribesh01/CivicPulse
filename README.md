@@ -45,12 +45,50 @@ One sweep checks every open ticket rather than one timer per ticket, so a worker
 that was down catches up instead of losing deadlines. A ticket found well past
 its deadline fires every rung it missed, in order, exactly once.
 
+## For citizens
+
+The citizen-facing half of the app is built for someone on a mid-range Android
+phone who may not be a confident reader:
+
+- **Hindi and English**, switchable from the header on every page. The choice
+  is a cookie, so it works signed-out and takes effect immediately; a signed-in
+  user's preference is also saved to their profile.
+- **Guided, step-by-step reporting.** Photo → describe → location → *check what
+  we understood* → send. The system shows which department it picked, which
+  ward, how urgent it judged the problem and the deadline that follows — in the
+  citizen's own language — and asks one short follow-up question when something
+  important is missing.
+- **Login is mandatory** before a complaint is registered, so every report has
+  a traceable source. The citizen's name is shown to officers handling the
+  repair and never on any public page.
+- **Photo evidence is mandatory** wherever image storage is configured.
+- **Reward points** for reporting, so it is worth coming back.
+
+## Reward points
+
+| Event | Points |
+|---|---|
+| Complaint filed | +10 |
+| The complaint gets fixed | +25 |
+| Citizen confirms the repair | +5 |
+| Complaint rejected as not genuine | −20 |
+
+Levels: **नागरिक** (0) → **जागरूक नागरिक** (100) → **इलाका प्रहरी** (300) →
+**सिविक चैंपियन** (750).
+
+Rejection costs more than filing earns, so spam is net-negative rather than
+merely unrewarded. Points live in an append-only `PointsLedger` with a unique
+constraint on `(user, complaint, reason)` — a ticket that is resolved, reopened
+and resolved again cannot be farmed, and a retried request cannot double-pay.
+`User.points` is a denormalised running total; the ledger is the truth.
+
 ## Stack
 
 - **Next.js 16** (App Router, server components, server actions)
 - **PostgreSQL** on Neon + **Prisma 7** (driver adapter, `prisma.config.ts`)
 - **better-auth** with role-based access (citizen / officer / supervisor / department head / admin)
 - **Groq** (`openai/gpt-oss-120b`) for classification, via strict JSON-schema output against a closed taxonomy
+- **Cloudinary** for photo evidence, uploaded straight from the browser with a server-generated signature
 - Tailwind v4
 
 ## Getting started
@@ -73,6 +111,9 @@ pnpm dev
 | `BETTER_AUTH_URL` | production only | Leave empty in dev; the origin is inferred from the request so any port works |
 | `GROQ_API_KEY` | no | Without it, classification falls back to keyword matching and flags tickets for review |
 | `GROQ_MODEL` | no | Defaults to `openai/gpt-oss-120b`. Any Groq model with strict JSON-schema support works |
+| `CLOUDINARY_CLOUD_NAME` | no | Set all three to make photo evidence **mandatory** |
+| `CLOUDINARY_API_KEY` | no | |
+| `CLOUDINARY_API_SECRET` | no | Never sent to the browser — only the per-upload signature is |
 | `CRON_SECRET` | yes | The sweep endpoint refuses to run without it |
 
 ### Demo accounts

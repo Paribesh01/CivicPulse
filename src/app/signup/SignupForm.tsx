@@ -2,10 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { CircleAlert, UserPlus } from "lucide-react";
+import { BigButton } from "@/components/ui";
 import { signUp } from "@/lib/auth-client";
 import { Field } from "@/app/login/LoginForm";
+import type { Dictionary } from "@/lib/i18n/dictionaries";
 
-export function SignupForm() {
+export function SignupForm({ t, next }: { t: Dictionary; next: string }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -18,7 +21,7 @@ export function SignupForm() {
     event.preventDefault();
 
     if (password.length < 8) {
-      setError("Password must be at least 8 characters");
+      setError(t.auth.passwordHint);
       return;
     }
 
@@ -38,15 +41,21 @@ export function SignupForm() {
       return;
     }
 
-    router.push("/dashboard");
+    router.push(next as never);
     router.refresh();
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
-      <Field label="Full name" value={name} onChange={setName} autoComplete="name" required />
+    <form onSubmit={handleSubmit} className="space-y-4">
       <Field
-        label="Email"
+        label={t.auth.name}
+        value={name}
+        onChange={setName}
+        autoComplete="name"
+        required
+      />
+      <Field
+        label={t.auth.email}
         type="email"
         value={email}
         onChange={setEmail}
@@ -54,7 +63,7 @@ export function SignupForm() {
         required
       />
       <Field
-        label="Mobile (optional)"
+        label={`${t.auth.phone} (${t.common.optional})`}
         type="tel"
         value={phone}
         onChange={setPhone}
@@ -62,28 +71,29 @@ export function SignupForm() {
         placeholder="+91 …"
       />
       <Field
-        label="Password"
+        label={t.auth.password}
         type="password"
         value={password}
         onChange={setPassword}
         autoComplete="new-password"
         required
+        hint={t.auth.passwordHint}
       />
-      <p className="text-xs text-ink-faint">At least 8 characters.</p>
 
       {error && (
-        <p className="rounded-lg bg-critical-soft px-3 py-2 text-sm text-critical">
+        <p className="flex items-start gap-2 rounded-xl bg-critical-soft p-3 text-critical">
+          <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />
           {error}
         </p>
       )}
 
-      <button
+      <BigButton
         type="submit"
         disabled={pending}
-        className="w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+        icon={<UserPlus className="h-5 w-5" />}
       >
-        {pending ? "Creating account…" : "Create account"}
-      </button>
+        {pending ? t.common.loading : t.common.signUp}
+      </BigButton>
     </form>
   );
 }

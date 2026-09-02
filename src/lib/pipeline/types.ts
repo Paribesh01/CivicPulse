@@ -42,6 +42,13 @@ export type Classification = {
   categoryKey: string;
   subCategory: string;
   intentSummary: string;
+  /// The same understanding written back to the citizen in their own
+  /// language, so the review step confirms what *they* said rather than
+  /// showing them internal English.
+  citizenSummary: string;
+  /// One short question in the citizen's language when something important is
+  /// missing (usually the location). Null when nothing needs asking.
+  clarifyingQuestion: string | null;
   confidence: number;
   locationText: string | null;
   landmarkType: LandmarkType;
@@ -63,13 +70,16 @@ export type PriorityBreakdown = {
 
 export type IntakeInput = {
   text: string;
-  citizenId?: string | null;
+  /// Required: complaints are only registered for a signed-in citizen, so
+  /// every report has a traceable source. The name is never shown publicly.
+  citizenId: string;
   citizenPhone?: string | null;
   locationHint?: string | null;
   lat?: number | null;
   lng?: number | null;
   channel?: string;
   photoUrl?: string | null;
+  photoPublicId?: string | null;
 };
 
 export type IntakeTrace = {

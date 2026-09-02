@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { ComplaintRow } from "@/components/ComplaintRow";
+import { CitizenDashboard } from "@/components/CitizenDashboard";
 import { Card, EmptyState, Eyebrow, Stat } from "@/components/ui";
 import { prisma } from "@/lib/db";
 import { complaintScope } from "@/lib/scope";
 import { requireUser, isStaff } from "@/lib/session";
+import { getI18n } from "@/lib/i18n";
 import { formatHours, formatRate, getSystemStats } from "@/lib/stats";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +15,7 @@ const SELECT = {
   id: true,
   code: true,
   rawText: true,
+  photoUrl: true,
   status: true,
   priority: true,
   priorityScore: true,
@@ -28,9 +31,16 @@ const SELECT = {
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const scope = complaintScope(user);
   const staff = isStaff(user.role);
 
+  // Citizens and staff want completely different things here: one wants their
+  // own reports and their points, the other wants a work queue.
+  if (!staff) {
+    const { t, locale } = await getI18n();
+    return <CitizenDashboard user={user} t={t} locale={locale} />;
+  }
+
+  const scope = complaintScope(user);
   const now = new Date();
 
   const [openComplaints, recentlyClosed, stats, unassigned] = await Promise.all([

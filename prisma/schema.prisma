@@ -101,6 +101,13 @@ model User {
   // anyone not available so leave/transfer does not silently swallow tickets.
   available    Boolean @default(true)
 
+  /// UI language. "en" or "hi".
+  locale String @default("en")
+
+  /// Denormalised sum of pointsLedger, kept so leaderboards and the header
+  /// badge don't aggregate on every request. PointsLedger is the truth.
+  points Int @default(0)
+
   department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   ward       Ward?       @relation(fields: [wardId], references: [id], onDelete: SetNull)
 
@@ -111,6 +118,7 @@ model User {
   assignedComplaints Complaint[]      @relation("ComplaintAssignee")
   events             ComplaintEvent[] @relation("EventActor")
   notifications      Notification[]
+  pointsLedger       PointsLedger[]
 
   @@index([role])
   @@index([departmentId, wardId])
@@ -276,7 +284,13 @@ model Complaint {
   rawText  String
   language String?
   channel  String  @default("WEB")
-  photoUrl String?
+
+  /// Photographic evidence. Mandatory at intake whenever image storage is
+  /// configured — authorities need to see the actual severity, and a photo
+  /// is the cheapest authenticity check available.
+  photoUrl      String?
+  /// Cloudinary public_id, kept so the asset can be deleted or transformed.
+  photoPublicId String?
 
   citizenId    String?
   citizen      User?   @relation("ComplaintCitizen", fields: [citizenId], references: [id], onDelete: SetNull)
@@ -335,6 +349,7 @@ model Complaint {
 
   events        ComplaintEvent[]
   notifications Notification[]
+  pointsLedger  PointsLedger[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -386,6 +401,31 @@ model Notification {
 
   @@index([userId, readAt])
   @@index([createdAt])
+}
+
+/// Append-only reward ledger. Points motivate citizens to keep reporting, so
+/// the balance has to be explainable — every change records what earned it and
+/// which complaint it came from. `User.points` is the running total.
+model PointsLedger {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  complaintId String?
+  complaint   Complaint? @relation(fields: [complaintId], references: [id], onDelete: SetNull)
+
+  /// Negative for penalties, e.g. a complaint rejected as invalid.
+  delta  Int
+  /// Stable machine key (COMPLAINT_FILED, COMPLAINT_RESOLVED, …) so the UI can
+  /// translate it rather than storing an English sentence.
+  reason String
+
+  createdAt DateTime @default(now())
+
+  /// One award per reason per complaint — makes granting idempotent, so a
+  /// reopened-and-re-resolved ticket cannot be farmed for points.
+  @@unique([userId, complaintId, reason])
+  @@index([userId, createdAt])
 }
 
 /// Monotonic source for the human-facing CP-#### ticket numbers.

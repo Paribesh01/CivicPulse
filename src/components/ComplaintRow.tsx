@@ -2,12 +2,14 @@ import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { SlaMeter } from "@/components/SlaMeter";
 import { PriorityPill, StatusPill } from "@/components/ui";
+import { photoVariant } from "@/lib/cloudinary";
 import type { ComplaintStatus, Priority } from "@/generated/prisma";
 
 export type ComplaintRowData = {
   id: string;
   code: string;
   rawText: string;
+  photoUrl?: string | null;
   status: ComplaintStatus;
   priority: Priority;
   priorityScore: number | null;
@@ -47,9 +49,20 @@ export function ComplaintRow({
         <ArrowUpRight className="ml-auto h-4 w-4 text-ink-faint opacity-0 transition-opacity group-hover:opacity-100" />
       </div>
 
-      <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-ink">
-        {complaint.rawText}
-      </p>
+      <div className="mt-2 flex gap-3">
+        {complaint.photoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photoVariant(complaint.photoUrl, "thumb")}
+            alt=""
+            className="h-16 w-16 shrink-0 rounded-lg object-cover"
+            loading="lazy"
+          />
+        )}
+        <p className="line-clamp-2 text-sm leading-relaxed text-ink">
+          {complaint.rawText}
+        </p>
+      </div>
 
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[0.7rem] text-ink-faint">
         <span>{complaint.categoryRoute?.label ?? "Unclassified"}</span>

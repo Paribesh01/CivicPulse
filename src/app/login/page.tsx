@@ -1,74 +1,73 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SiteHeader } from "@/components/SiteHeader";
-import { Card, Eyebrow } from "@/components/ui";
+import { Card } from "@/components/ui";
 import { getSessionUser } from "@/lib/session";
+import { getI18n } from "@/lib/i18n";
 import { LoginForm } from "./LoginForm";
 
-export const metadata = { title: "Sign in" };
+export const dynamic = "force-dynamic";
+
+export async function generateMetadata() {
+  const { t } = await getI18n();
+  return { title: t.auth.loginTitle };
+}
 
 const DEMO_ACCOUNTS = [
-  ["je.elec.b@civicpulse.gov.in", "Field officer — Ward 14 electrical"],
-  ["sup.elec@civicpulse.gov.in", "Supervisor — electrical"],
-  ["head.elec@civicpulse.gov.in", "Department head — electrical"],
-  ["admin@civicpulse.gov.in", "Administrator — sees everything"],
-  ["ravi@example.com", "Citizen — Ward 14"],
+  ["ravi@example.com", "Citizen · नागरिक"],
+  ["je.elec.b@civicpulse.gov.in", "Field officer · अधिकारी"],
+  ["sup.elec@civicpulse.gov.in", "Supervisor"],
+  ["admin@civicpulse.gov.in", "Administrator"],
 ];
 
-export default async function LoginPage() {
-  if (await getSessionUser()) redirect("/dashboard");
+export default async function LoginPage({
+  searchParams,
+}: PageProps<"/login">) {
+  const { next } = await searchParams;
+  const target = typeof next === "string" && next.startsWith("/") ? next : "/dashboard";
+
+  if (await getSessionUser()) redirect(target);
+
+  const { t } = await getI18n();
 
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto grid w-full max-w-5xl flex-1 gap-8 px-5 py-14 md:grid-cols-2">
-        <div>
-          <Eyebrow>Sign in</Eyebrow>
-          <h1 className="mt-3 font-serif text-3xl font-semibold">
-            Welcome back
-          </h1>
-          <p className="mt-2 text-ink-soft">
-            Officers see their queue and SLA clocks. Citizens see the status of
-            everything they&rsquo;ve reported.
-          </p>
+      <main className="mx-auto w-full max-w-lg flex-1 px-4 py-8">
+        <h1 className="font-serif text-3xl font-bold">{t.auth.loginTitle}</h1>
+        <p className="mt-2 text-ink-soft">{t.auth.loginBody}</p>
 
-          <Card className="mt-6 p-5">
-            <LoginForm />
-            <p className="mt-4 text-sm text-ink-soft">
-              No account?{" "}
-              <Link href="/signup" className="text-accent underline underline-offset-2">
-                Create one
-              </Link>
-              . You can also{" "}
-              <Link href="/report" className="text-accent underline underline-offset-2">
-                report an issue without signing in
-              </Link>
-              .
-            </p>
-          </Card>
-        </div>
+        <Card className="mt-5 p-5">
+          <LoginForm t={t} next={target} />
+        </Card>
 
-        <div>
-          <Eyebrow>Demo accounts</Eyebrow>
-          <h2 className="mt-3 font-serif text-xl font-semibold">
-            Seeded roles to try
-          </h2>
-          <p className="mt-2 text-sm text-ink-soft">
-            Every seeded account uses the password{" "}
-            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs">
+        <p className="mt-5 text-center text-ink-soft">
+          {t.auth.noAccount}{" "}
+          <Link
+            href={`/signup?next=${encodeURIComponent(target)}`}
+            className="font-semibold text-accent underline underline-offset-4"
+          >
+            {t.auth.createOne}
+          </Link>
+        </p>
+
+        <Card className="mt-8 p-5">
+          <h2 className="font-semibold">{t.auth.demoTitle}</h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            {t.auth.demoBody}{" "}
+            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-sm">
               civicpulse123
             </code>
-            .
           </p>
-          <Card className="mt-4 divide-y divide-line">
+          <ul className="mt-3 space-y-2">
             {DEMO_ACCOUNTS.map(([email, role]) => (
-              <div key={email} className="p-3.5">
-                <div className="font-mono text-xs text-ink">{email}</div>
-                <div className="mt-0.5 text-xs text-ink-soft">{role}</div>
-              </div>
+              <li key={email} className="text-sm">
+                <span className="font-mono">{email}</span>
+                <span className="ml-2 text-ink-faint">{role}</span>
+              </li>
             ))}
-          </Card>
-        </div>
+          </ul>
+        </Card>
       </main>
     </>
   );

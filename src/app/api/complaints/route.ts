@@ -3,21 +3,33 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { intakeComplaint } from "@/lib/pipeline/intake";
 import { getSessionUser } from "@/lib/session";
+import { getLocale } from "@/lib/i18n";
 import { complaintScope } from "@/lib/scope";
+import { isOwnPhotoUrl, isPhotoStorageConfigured } from "@/lib/cloudinary";
 
-/// Intake endpoint. The brief's citizen app, web form and IVR bridge all land
-/// here — `channel` is how they identify themselves.
 const CreateSchema = z.object({
-  text: z.string().min(10, "Describe the problem in at least 10 characters").max(4000),
+  text: z.string().min(10).max(4000),
   locationHint: z.string().max(300).optional().nullable(),
   lat: z.number().min(-90).max(90).optional().nullable(),
   lng: z.number().min(-180).max(180).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
   channel: z.enum(["WEB", "APP", "IVR", "SMS", "WALK_IN"]).optional(),
   photoUrl: z.string().url().max(2000).optional().nullable(),
+  photoPublicId: z.string().max(300).optional().nullable(),
 });
 
 export async function POST(request: Request) {
+  // Complaints are only registered for a signed-in citizen. Knowing the source
+  // is what makes spam and fake reports answerable; the citizen's identity is
+  // still kept off every public page.
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json(
+      { error: "Sign in required to file a complaint" },
+      { status: 401 },
+    );
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -33,21 +45,44 @@ export async function POST(request: Request) {
     );
   }
 
-  // Anonymous submissions are allowed on purpose — requiring an account is
-  // exactly the friction that keeps civic complaints from being filed.
-  const user = await getSessionUser();
+  const { photoUrl } = parsed.data;
+
+  // Photo evidence is mandatory wherever it can actually be stored. With no
+  // image backend configured the app stays usable rather than blocking every
+  // report on infrastructure that isn't wired up yet.
+  if (isPhotoStorageConfigured()) {
+    if (!photoUrl) {
+      return NextResponse.json(
+        { error: "A photo of the problem is required", field: "photoUrl" },
+        { status: 400 },
+      );
+    }
+    // Only accept URLs in our own Cloudinary folder — otherwise the field is
+    // just an open redirect to any image on the internet.
+    if (!isOwnPhotoUrl(photoUrl)) {
+      return NextResponse.json(
+        { error: "Photo must be uploaded through this app", field: "photoUrl" },
+        { status: 400 },
+      );
+    }
+  }
 
   try {
-    const { complaintId, code, trace } = await intakeComplaint({
-      text: parsed.data.text,
-      citizenId: user?.id ?? null,
-      citizenPhone: parsed.data.phone ?? user?.phone ?? null,
-      locationHint: parsed.data.locationHint,
-      lat: parsed.data.lat,
-      lng: parsed.data.lng,
-      channel: parsed.data.channel ?? "WEB",
-      photoUrl: parsed.data.photoUrl,
-    });
+    const locale = await getLocale();
+    const { complaintId, code, trace, pointsAwarded } = await intakeComplaint(
+      {
+        text: parsed.data.text,
+        citizenId: user.id,
+        citizenPhone: parsed.data.phone ?? user.phone ?? null,
+        locationHint: parsed.data.locationHint,
+        lat: parsed.data.lat,
+        lng: parsed.data.lng,
+        channel: parsed.data.channel ?? "WEB",
+        photoUrl: photoUrl ?? null,
+        photoPublicId: parsed.data.photoPublicId ?? null,
+      },
+      locale,
+    );
 
     return NextResponse.json(
       {
@@ -62,6 +97,7 @@ export async function POST(request: Request) {
         slaHours: trace.slaHours,
         dueAt: trace.dueAt,
         signals: trace.priorityBreakdown.signals,
+        pointsAwarded,
       },
       { status: 201 },
     );
@@ -100,6 +136,7 @@ export async function GET(request: Request) {
       resolvedAt: true,
       createdAt: true,
       escalationLevel: true,
+      photoUrl: true,
       categoryRoute: { select: { label: true, group: true } },
       department: { select: { name: true, code: true } },
       ward: { select: { name: true, zone: true } },

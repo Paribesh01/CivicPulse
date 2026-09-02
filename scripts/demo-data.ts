@@ -35,10 +35,35 @@ const COMPLAINTS: { text: string; locationHint?: string; channel?: string }[] = 
   { text: "Stray cattle sitting in the middle of Kalyanpur main road causing accidents.", channel: "APP" },
 ];
 
-async function submit(complaint: (typeof COMPLAINTS)[number]) {
+/// Complaints now require a signed-in citizen, so the script authenticates the
+/// same way a browser would and reuses the session cookie.
+const DEMO_CITIZEN = { email: "ravi@example.com", password: "civicpulse123" };
+
+async function signIn(): Promise<string> {
+  const response = await fetch(`${BASE_URL}/api/auth/sign-in/email`, {
+    method: "POST",
+    // Node's fetch sends a null Origin, which better-auth's CSRF check
+    // rejects. Send the real one, exactly as a browser would.
+    headers: { "Content-Type": "application/json", origin: BASE_URL },
+    body: JSON.stringify(DEMO_CITIZEN),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Could not sign in as ${DEMO_CITIZEN.email} (${response.status}). ` +
+        "Run `pnpm db:seed` first.",
+    );
+  }
+
+  const cookies = response.headers.getSetCookie();
+  if (cookies.length === 0) throw new Error("Sign-in returned no session cookie");
+  return cookies.map((c) => c.split(";")[0]).join("; ");
+}
+
+async function submit(complaint: (typeof COMPLAINTS)[number], cookie: string) {
   const response = await fetch(`${BASE_URL}/api/complaints`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", cookie, origin: BASE_URL },
     body: JSON.stringify({
       text: complaint.text,
       locationHint: complaint.locationHint ?? null,
@@ -53,10 +78,12 @@ async function submit(complaint: (typeof COMPLAINTS)[number]) {
 }
 
 async function main() {
+  const cookie = await signIn();
+  console.log(`Signed in as ${DEMO_CITIZEN.email}`);
   console.log(`Submitting ${COMPLAINTS.length} complaints to ${BASE_URL}…\n`);
 
   for (const complaint of COMPLAINTS) {
-    const result = await submit(complaint);
+    const result = await submit(complaint, cookie);
     console.log(
       `  ${result.code}  ${String(result.priority).padStart(3)}  ` +
         `${(result.department ?? "unrouted").padEnd(34)} ${result.ward ?? "—"}`,

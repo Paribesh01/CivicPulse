@@ -77,6 +77,34 @@ body {
   background: var(--bg);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
+  /* Slightly larger than the 16px default: the audience skews towards small
+     phones, outdoor light, and readers who are not fast readers. */
+  font-size: 1.0625rem;
+  line-height: 1.6;
+}
+
+/* Form controls are touch targets first. 3rem clears the 44px minimum, and
+   16px+ text stops iOS Safari zooming on focus. */
+input,
+textarea,
+select {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+select {
+  min-height: 3rem;
+}
+
+button,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+:where(a, button, input, textarea, select):focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* Monospace, letter-spaced label used throughout for section markers and
@@ -107,12 +135,6 @@ body {
   50% {
     opacity: 0.35;
   }
-}
-
-input,
-textarea,
-select {
-  color: var(--ink);
 }
 
 ::placeholder {

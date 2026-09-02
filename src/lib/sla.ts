@@ -61,6 +61,30 @@ export async function runSlaSweep(now: Date = new Date()): Promise<SweepResult> 
 
   const fired: SweepResult["fired"] = [];
 
+  // Escalation targets are a property of (role, department), not of the
+  // ticket — looking them up per rule per complaint turned the sweep into
+  // hundreds of sequential round-trips against a remote database.
+  const recipientCache = new Map<string, string[]>();
+  async function recipientsFor(
+    role: Role,
+    departmentId: string | null,
+  ): Promise<string[]> {
+    const key = `${role}:${departmentId ?? "*"}`;
+    const cached = recipientCache.get(key);
+    if (cached) return cached;
+
+    const users = await prisma.user.findMany({
+      where: {
+        role,
+        ...(role === "ADMIN" ? {} : { departmentId: departmentId ?? undefined }),
+      },
+      select: { id: true },
+    });
+    const ids = users.map((u) => u.id);
+    recipientCache.set(key, ids);
+    return ids;
+  }
+
   for (const complaint of open) {
     const assignedAt = complaint.assignedAt!.getTime();
     const dueAt = complaint.dueAt!.getTime();
@@ -94,18 +118,10 @@ export async function runSlaSweep(now: Date = new Date()): Promise<SweepResult> 
       }
 
       if (rule.notifyRole) {
-        const seniors = await prisma.user.findMany({
-          where: {
-            role: rule.notifyRole,
-            ...(rule.notifyRole === "ADMIN"
-              ? {}
-              : { departmentId: complaint.departmentId ?? undefined }),
-          },
-          select: { id: true },
-        });
-        for (const senior of seniors) {
+        const seniors = await recipientsFor(rule.notifyRole, complaint.departmentId);
+        for (const seniorId of seniors) {
           drafts.push({
-            userId: senior.id,
+            userId: seniorId,
             complaintId: complaint.id,
             title: `${complaint.code} escalated — ${rule.label}`,
             body: `${complaint.priority} ${ticketLabel} is past its deadline and still open.`,
